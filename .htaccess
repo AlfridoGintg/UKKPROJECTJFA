@@ -1,0 +1,5 @@
+RewriteEngine On
+
+# Jika folder public ada, arahkan semua trafik ke sana
+RewriteRule ^$ public/index.php [L]
+RewriteRule ^((?!public/).*)$ public/$1 [L]
