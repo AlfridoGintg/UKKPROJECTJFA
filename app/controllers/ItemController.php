@@ -12,7 +12,7 @@ class ItemController
     }
 
     /**
-     * TAMPILAN UTAMA: Katalog Alat Produksi
+     * TAMPILAN UTAMA: Katalog Alat Produksi (Dengan Paginasi & Pencarian)
      */
     public function index($pdo)
     {
@@ -24,19 +24,17 @@ class ItemController
         $keyword = $_GET['q'] ?? '';
         $category_id = $_GET['category'] ?? '';
         
-        $limit = 12; 
-        $page = isset($_GET['p']) ? (int)$_GET['p'] : 1;
-        $offset = ($page - 1) * $limit;
+        $limit = 12; // Menampilkan 12 barang per halaman
+        // Memastikan page minimal bernilai 1 agar tidak terjadi error offset negatif
+        $currentPage = isset($_GET['p']) ? max(1, (int)$_GET['p']) : 1; 
+        $offset = ($currentPage - 1) * $limit;
 
-        $query = "SELECT i.*, c.name as category_name 
-                  FROM items i 
-                  LEFT JOIN categories c ON i.category_id = c.id 
-                  WHERE 1=1";
-        
+        // Base Query untuk mempermudah penghitungan data & fetch (Sesuai Referensi Update)
+        $baseQuery = "FROM items i LEFT JOIN categories c ON i.category_id = c.id WHERE 1=1";
         $params = [];
 
         if (!empty($keyword)) {
-            $query .= " AND (i.name LIKE ? OR i.brand LIKE ?)";
+            $baseQuery .= " AND (i.name LIKE ? OR i.brand LIKE ?)";
             $params[] = "%$keyword%";
             $params[] = "%$keyword%";
             
@@ -48,18 +46,24 @@ class ItemController
                     $stmtHist = $pdo->prepare("INSERT INTO search_history (user_id, keyword) VALUES (?, ?)");
                     $stmtHist->execute([$userId, $keyword]);
                 } catch (PDOException $e) {
-                    // Abaikan jika tabel tidak ada
+                    // Abaikan jika tabel history tidak tersedia
                 }
             }
         }
 
         if (!empty($category_id)) {
-            $query .= " AND i.category_id = ?";
+            $baseQuery .= " AND i.category_id = ?";
             $params[] = $category_id;
         }
 
-        $query .= " ORDER BY i.id DESC LIMIT $limit OFFSET $offset";
+        // 1. HITUNG TOTAL DATA UNTUK PAGINASI
+        $countStmt = $pdo->prepare("SELECT COUNT(i.id) " . $baseQuery);
+        $countStmt->execute($params);
+        $totalItems = $countStmt->fetchColumn();
+        $totalPages = ceil($totalItems / $limit); // Total Halaman yang tersedia
 
+        // 2. AMBIL DATA SESUAI HALAMAN AKTIF (LIMIT & OFFSET)
+        $query = "SELECT i.*, c.name as category_name " . $baseQuery . " ORDER BY i.id DESC LIMIT $limit OFFSET $offset";
         $stmt = $pdo->prepare($query);
         $stmt->execute($params);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -76,7 +80,7 @@ class ItemController
     public function create($pdo)
     {
         if (!$this->isAdmin()) {
-            header("Location: index.php?page=items");
+            header("Location: index.php?page=dashboard");
             exit;
         }
 
@@ -95,18 +99,16 @@ class ItemController
     public function store($pdo)
     {
         if (!$this->isAdmin() || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            header("Location: index.php?page=items");
+            header("Location: index.php?page=dashboard");
             exit;
         }
 
-        // Logika Upload Gambar
         $imageName = 'default_item.jpg';
         if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
             $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
             $imageName = bin2hex(random_bytes(10)) . '.' . $ext;
             $uploadPath = BASE_PATH . '/public/assets/img/items/';
             
-            // Buat folder jika belum ada
             if (!is_dir($uploadPath)) mkdir($uploadPath, 0777, true);
             
             move_uploaded_file($_FILES['image']['tmp_name'], $uploadPath . $imageName);
@@ -135,7 +137,7 @@ class ItemController
     public function edit($pdo)
     {
         if (!$this->isAdmin()) {
-            header("Location: index.php?page=items");
+            header("Location: index.php?page=dashboard");
             exit;
         }
 
@@ -161,26 +163,23 @@ class ItemController
     public function update($pdo)
     {
         if (!$this->isAdmin() || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            header("Location: index.php?page=items");
+            header("Location: index.php?page=dashboard");
             exit;
         }
 
         $id = $_POST['id'];
         
-        // Ambil data lama untuk cek gambar lama
         $stmtOld = $pdo->prepare("SELECT image FROM items WHERE id = ?");
         $stmtOld->execute([$id]);
         $oldItem = $stmtOld->fetch();
         $imageName = $oldItem['image'] ?? 'default_item.jpg';
 
-        // Jika ada upload gambar baru
         if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
             $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
             $newImageName = bin2hex(random_bytes(10)) . '.' . $ext;
             $uploadPath = BASE_PATH . '/public/assets/img/items/';
 
             if (move_uploaded_file($_FILES['image']['tmp_name'], $uploadPath . $newImageName)) {
-                // Hapus gambar lama jika bukan default
                 if ($imageName !== 'default_item.jpg' && file_exists($uploadPath . $imageName)) {
                     unlink($uploadPath . $imageName);
                 }
@@ -188,7 +187,6 @@ class ItemController
             }
         }
 
-        // Cek apakah ini update cepat (hanya status & stok) atau update lengkap
         if (isset($_POST['condition_status']) && isset($_POST['stock']) && !isset($_POST['name'])) {
             $stmt = $pdo->prepare("UPDATE items SET condition_status = ?, stock = ? WHERE id = ?");
             $stmt->execute([$_POST['condition_status'], $_POST['stock'], $id]);
@@ -223,16 +221,7 @@ class ItemController
 
         $id = $_GET['id'] ?? 0;
         
-        // Ambil info gambar sebelum dihapus untuk membersihkan storage
-        $stmtImg = $pdo->prepare("SELECT image FROM items WHERE id = ?");
-        $stmtImg->execute([$id]);
-        $item = $stmtImg->fetch();
-
-        if ($item && $item['image'] !== 'default_item.jpg') {
-            $path = BASE_PATH . '/public/assets/img/items/' . $item['image'];
-            if (file_exists($path)) unlink($path);
-        }
-
+        // Langsung jalankan perintah DELETE (Sesuai Referensi Update)
         $stmt = $pdo->prepare("DELETE FROM items WHERE id = ?");
         $stmt->execute([$id]);
 

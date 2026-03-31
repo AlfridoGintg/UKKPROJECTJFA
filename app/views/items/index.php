@@ -18,10 +18,10 @@
                 
                 <select name="category" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow shadow-sm font-medium">
                     <option value="">Semua Kategori</option>
-                    <option value="1">Kamera</option>
-                    <option value="2">Lensa</option>
-                    <option value="3">Audio</option>
-                    <option value="4">Lighting</option>
+                    <option value="1" <?= (isset($_GET['category']) && $_GET['category'] == '1') ? 'selected' : '' ?>>Kamera</option>
+                    <option value="2" <?= (isset($_GET['category']) && $_GET['category'] == '2') ? 'selected' : '' ?>>Lensa</option>
+                    <option value="3" <?= (isset($_GET['category']) && $_GET['category'] == '3') ? 'selected' : '' ?>>Audio</option>
+                    <option value="4" <?= (isset($_GET['category']) && $_GET['category'] == '4') ? 'selected' : '' ?>>Lighting</option>
                 </select>
 
                 <div class="relative w-full sm:w-64">
@@ -37,7 +37,7 @@
                             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Riwayat</span>
                             <button type="button" onclick="clearHistory()" class="text-[10px] text-red-500 hover:text-red-700 font-bold uppercase">Hapus</button>
                         </div>
-                        <ul class="max-h-48 overflow-y-auto" id="historyList"></ul>
+                        <ul class="max-h-48 overflow-y-auto custom-scrollbar" id="historyList"></ul>
                     </div>
                 </div>
 
@@ -66,7 +66,9 @@
                     </button>
 
                     <div class="aspect-[4/3] bg-slate-100 rounded-[1.5rem] mb-5 overflow-hidden relative">
-                        <img src="https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=600" class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
+                        <img src="public/assets/img/items/<?= htmlspecialchars($item['image']) ?>" 
+                             onerror="this.src='https://images.unsplash.com/photo-1516035069371-29a1b244cc32?q=80&w=600'"
+                             class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
                         <span class="absolute top-3 left-3 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm <?= $conditionColor ?>">
                             <?= $item['condition_status'] ?>
                         </span>
@@ -125,17 +127,42 @@
         <?php endif; ?>
     </div>
     
-    <div class="mt-10 flex justify-center items-center gap-2">
-        <button class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all"><i class="fas fa-chevron-left"></i></button>
-        <button class="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200">1</button>
-        <button class="w-10 h-10 rounded-xl bg-white border border-slate-200 font-bold text-slate-600 hover:bg-slate-50 transition-all">2</button>
-        <button class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all"><i class="fas fa-chevron-right"></i></button>
+    <?php if (isset($totalPages) && $totalPages > 1): ?>
+    <div class="mt-10 flex flex-wrap justify-center items-center gap-2">
+        <?php 
+            // Menyimpan filter pencarian agar saat pindah halaman filter tidak hilang
+            $queryParams = $_GET;
+            unset($queryParams['p']); 
+            $baseUrl = 'index.php?' . http_build_query($queryParams) . '&p=';
+        ?>
+
+        <?php if ($currentPage > 1): ?>
+            <a href="<?= $baseUrl . ($currentPage - 1) ?>" class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all"><i class="fas fa-chevron-left"></i></a>
+        <?php else: ?>
+            <button disabled class="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-300 cursor-not-allowed"><i class="fas fa-chevron-left"></i></button>
+        <?php endif; ?>
+
+        <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+            <?php if ($i == $currentPage): ?>
+                <button class="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200"><?= $i ?></button>
+            <?php else: ?>
+                <a href="<?= $baseUrl . $i ?>" class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-bold text-slate-600 hover:bg-slate-50 transition-all"><?= $i ?></a>
+            <?php endif; ?>
+        <?php endfor; ?>
+
+        <?php if ($currentPage < $totalPages): ?>
+            <a href="<?= $baseUrl . ($currentPage + 1) ?>" class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all"><i class="fas fa-chevron-right"></i></a>
+        <?php else: ?>
+            <button disabled class="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-300 cursor-not-allowed"><i class="fas fa-chevron-right"></i></button>
+        <?php endif; ?>
     </div>
+    <?php endif; ?>
 </div>
 
 <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-3"></div>
+
 <script>
-    // --- 1. FITUR NOTIFIKASI TOAST (NON-INTRUSIVE) ---
+    // --- 1. FITUR NOTIFIKASI TOAST ---
     function showToast(message, type = 'success') {
         const container = document.getElementById('toast-container');
         const toast = document.createElement('div');
@@ -146,31 +173,27 @@
         
         container.appendChild(toast);
         
-        // Animasi Masuk
         setTimeout(() => { toast.classList.remove('translate-y-10', 'opacity-0'); }, 10);
-        // Animasi Keluar
         setTimeout(() => { 
             toast.classList.add('translate-y-10', 'opacity-0'); 
             setTimeout(() => toast.remove(), 300);
         }, 3000);
     }
 
-    // --- 2. FITUR LOADING SPINNER PENCARIAN ---
+    // --- 2. FITUR LOADING SPINNER ---
     function showLoading() {
         document.getElementById('btnText').classList.add('hidden');
         document.getElementById('btnSpinner').classList.remove('hidden');
         
-        // Opsional: Simpan keyword ke localStorage sbg riwayat darurat di Front-end
         const query = document.getElementById('searchInput').value.trim();
         if(query) saveToHistory(query);
     }
 
-    // --- 3. FITUR WISHLIST (AJAX TOGGLE) ---
+    // --- 3. FITUR WISHLIST ---
     function toggleWishlist(itemId, btnElement) {
         const icon = btnElement.querySelector('i');
         const isHearted = icon.classList.contains('fas');
         
-        // Animasi instan di Front-end (Optimistic UI update)
         if(isHearted) {
             icon.classList.remove('fas');
             icon.classList.add('far');
@@ -178,46 +201,33 @@
         } else {
             icon.classList.remove('far');
             icon.classList.add('fas');
-            // Animasi pop kecil
             btnElement.classList.add('scale-125');
             setTimeout(() => btnElement.classList.remove('scale-125'), 150);
             showToast('Ditambahkan ke Wishlist', 'success');
         }
-
-        // TODO: Backend Fetch API Call (Contoh pengiriman ke server)
-        /*
-        fetch('index.php?page=toggle_wishlist', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `item_id=${itemId}`
-        });
-        */
     }
 
-    // --- 4. OPTIMASI RIWAYAT PENCARIAN ---
+    // --- 4. RIWAYAT PENCARIAN ---
     const searchInput = document.getElementById('searchInput');
     const historyDropdown = document.getElementById('searchHistoryDropdown');
     const historyList = document.getElementById('historyList');
 
-    // Menampilkan dropdown riwayat saat input di-klik
     searchInput.addEventListener('focus', () => {
         renderHistory();
         if(historyList.children.length > 0) historyDropdown.classList.remove('hidden');
     });
 
-    // Menyembunyikan dropdown jika klik di luar
     document.addEventListener('click', (e) => {
         if (!searchInput.contains(e.target) && !historyDropdown.contains(e.target)) {
             historyDropdown.classList.add('hidden');
         }
     });
 
-    // Fungsi Front-end untuk menyimpan riwayat (Bisa diganti dengan Fetch ke DB)
     function saveToHistory(keyword) {
         let history = JSON.parse(localStorage.getItem('jfa_search_history') || '[]');
-        history = history.filter(item => item.toLowerCase() !== keyword.toLowerCase()); // Hapus duplikat
-        history.unshift(keyword); // Taruh di atas
-        if(history.length > 10) history.pop(); // Batasi 10 riwayat
+        history = history.filter(item => item.toLowerCase() !== keyword.toLowerCase());
+        history.unshift(keyword);
+        if(history.length > 10) history.pop();
         localStorage.setItem('jfa_search_history', JSON.stringify(history));
     }
 
@@ -245,9 +255,9 @@
 </script>
 
 <style>
-/* CSS Tambahan untuk scrollbar dropdown yang cantik */
+/* CSS untuk scrollbar dropdown */
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: #f8fafc; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-</style>    
+</style>

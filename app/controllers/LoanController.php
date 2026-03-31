@@ -140,7 +140,7 @@ class LoanController {
     }
 
     /**
-     * PETUGAS: Verifikasi Pengembalian & Hitung Denda Otomatis
+     * PETUGAS: Verifikasi Pengembalian (Update via Model PHP)
      */
     public function returnItem($pdo) {
         if (!in_array($_SESSION['role'], ['admin', 'petugas'])) exit;
@@ -149,48 +149,22 @@ class LoanController {
         $kondisi = $_POST['condition'] ?? 'Baik';
 
         try {
-            $pdo->beginTransaction();
+            // Memanggil logika proses return dari model Loan.php yang sudah kita perbaiki
+            require_once BASE_PATH . '/app/models/Loan.php';
+            $loanModel = new Loan($pdo);
+            
+            // Eksekusi proses pengembalian (perhitungan denda & update stok)
+            $success = $loanModel->processReturn($loan_id, $kondisi);
 
-            $confStmt = $pdo->query("SELECT setting_key, setting_value FROM settings");
-            $conf = $confStmt->fetchAll(PDO::FETCH_KEY_PAIR);
-            $late_fee_per_day = (int)($conf['late_fee_per_day'] ?? 0);
-            $damage_percent = (float)($conf['damage_fine_percent'] ?? 0);
-
-            $stmt = $pdo->prepare("SELECT l.*, i.purchase_price, i.id as item_id FROM loans l JOIN items i ON l.item_id = i.id WHERE l.id = ?");
-            $stmt->execute([$loan_id]);
-            $loan = $stmt->fetch();
-
-            if (!$loan) throw new Exception("Data tidak ditemukan.");
-
-            $late_fine = 0;
-            $today = new DateTime(date('Y-m-d'));
-            $deadline = new DateTime($loan['return_date']);
-            if ($today > $deadline) {
-                $diff = $today->diff($deadline)->days;
-                $late_fine = $diff * $late_fee_per_day;
+            if ($success) {
+                header("Location: index.php?page=approvals&msg=returned_success");
+                exit;
+            } else {
+                die("Gagal memproses pengembalian barang. Silakan periksa koneksi database.");
             }
-
-            $condition_fine = 0;
-            if ($kondisi === 'Rusak') {
-                $condition_fine = $loan['purchase_price'] * $damage_percent;
-            } elseif ($kondisi === 'Hilang') {
-                $condition_fine = $loan['purchase_price'];
-            }
-
-            if ($kondisi !== 'Hilang') {
-                $pdo->prepare("UPDATE items SET stock = stock + 1 WHERE id = ?")->execute([$loan['item_id']]);
-            }
-
-            $pdo->prepare("UPDATE loans SET status = 'returned', fine = ?, late_fine = ?, condition_end = ?, returned_at = NOW() WHERE id = ?")
-                ->execute([$condition_fine, $late_fine, $kondisi, $loan_id]);
-
-            $pdo->commit();
-            header("Location: index.php?page=approvals&msg=returned");
-            exit;
-
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            die("Gagal: " . $e->getMessage());
+            
+        } catch (PDOException $e) {
+            die("Database Error: " . $e->getMessage());
         }
     }
 
@@ -226,7 +200,6 @@ class LoanController {
             exit;
         }
 
-        // Mengambil seluruh riwayat peminjaman
         $stmt = $pdo->query("
             SELECT l.*, u.username, i.name as item_name, i.brand 
             FROM loans l 
@@ -236,7 +209,25 @@ class LoanController {
         ");
         $reportData = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // View khusus laporan (tanpa layout main.php untuk kemudahan print)
         require BASE_PATH . '/app/views/admin/report_print.php';
+    }
+
+    /**
+     * ADMIN ONLY: Hapus Riwayat Peminjaman
+     */
+    public function deleteLoan($pdo) {
+        if ($_SESSION['role'] !== 'admin') {
+            header("Location: index.php?page=approvals&msg=unauthorized");
+            exit;
+        }
+        
+        $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+        if ($id) {
+            $pdo->prepare("DELETE FROM loans WHERE id = ?")->execute([$id]);
+            header("Location: index.php?page=approvals&msg=deleted");
+        } else {
+            header("Location: index.php?page=approvals&msg=error");
+        }
+        exit;
     }
 }

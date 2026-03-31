@@ -1,3 +1,3 @@
 <?php 
-define('BASEURL', 'http://localhost/Jogja-Film-Academy-Inventory'); 
+define('BASEURL', 'http://localhost/Jogja-FiDWQlm-Academy-Inventory'); 
 ?>      

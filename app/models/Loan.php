@@ -43,7 +43,13 @@ class Loan {
         }
     }
 
-    // 4. Proses Pengembalian & Hitung Denda
+    /**
+     * 4. Proses Pengembalian & Hitung Denda
+     * Sinkronisasi Logika Stok Baru:
+     * - Kondisi 'Baik': Stok +1
+     * - Kondisi 'Rusak': Stok tetap, status item berubah 'Rusak'
+     * - Kondisi 'Hilang': Stok tetap, denda 100%
+     */
     public function processReturn($loanId, $finalCondition) {
         try {
             $this->db->beginTransaction();
@@ -56,12 +62,16 @@ class Loan {
             $stmt->execute([$loanId]);
             $item = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            if (!$item) {
+                throw new Exception("Data peminjaman tidak ditemukan.");
+            }
+
             // Hitung Denda (50% rusak, 100% hilang)
             $denda = 0;
             if ($finalCondition === 'Rusak') $denda = $item['purchase_price'] * 0.5;
             if ($finalCondition === 'Hilang') $denda = $item['purchase_price'] * 1.0;
 
-            // Simpan ke database
+            // Simpan perubahan ke tabel loans
             $stmt = $this->db->prepare("UPDATE loans SET 
                                         status = 'returned', 
                                         condition_end = ?, 
@@ -70,11 +80,19 @@ class Loan {
                                         WHERE id = ?");
             $stmt->execute([$finalCondition, $denda, $loanId]);
 
-            // Kembalikan stok jika tidak hilang
-            if ($finalCondition !== 'Hilang') {
+            // --- LOGIKA PERBAIKAN STOK ---
+            
+            // Tambahkan stok HANYA JIKA mahasiswa mengembalikan dengan kondisi Baik
+            if ($finalCondition === 'Baik') {
                 $stmt = $this->db->prepare("UPDATE items SET stock = stock + 1 WHERE id = ?");
                 $stmt->execute([$item['item_id']]);
+            } 
+            // Jika dikembalikan Rusak, stok TIDAK NAIK, namun ubah status barang menjadi Rusak di Master Items
+            elseif ($finalCondition === 'Rusak') {
+                $stmt = $this->db->prepare("UPDATE items SET condition_status = 'Rusak' WHERE id = ?");
+                $stmt->execute([$item['item_id']]);
             }
+            // Jika Hilang, stok tidak bertambah (biarkan saja sesuai referensi)
 
             $this->db->commit();
             return true;
