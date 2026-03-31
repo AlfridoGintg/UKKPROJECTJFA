@@ -6,10 +6,8 @@ class ItemController
 {
     /**
      * Helper untuk validasi apakah user login adalah Admin
-     * Diperbaiki agar konsisten dengan AuthController
      */
     private function isAdmin() {
-        // AuthController menyimpan role langsung di $_SESSION['role']
         return isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
     }
 
@@ -86,14 +84,13 @@ class ItemController
         $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         ob_start();
-        // Pastikan file view ini ada: app/views/items/create.php
         require BASE_PATH . '/app/views/items/create.php';
         $content = ob_get_clean();
         require BASE_PATH . '/app/views/layouts/main.php';
     }
 
     /**
-     * Simpan Data Barang (Admin Only)
+     * Simpan Data Barang (Admin Only) - Mendukung Upload Gambar
      */
     public function store($pdo)
     {
@@ -102,17 +99,30 @@ class ItemController
             exit;
         }
 
-        // Pastikan semua field dari form tambah barang terisi
+        // Logika Upload Gambar
+        $imageName = 'default_item.jpg';
+        if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
+            $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+            $imageName = bin2hex(random_bytes(10)) . '.' . $ext;
+            $uploadPath = BASE_PATH . '/public/assets/img/items/';
+            
+            // Buat folder jika belum ada
+            if (!is_dir($uploadPath)) mkdir($uploadPath, 0777, true);
+            
+            move_uploaded_file($_FILES['image']['tmp_name'], $uploadPath . $imageName);
+        }
+
         $data = [
             $_POST['name'],
             $_POST['brand'],
+            $imageName,
             $_POST['category_id'],
             $_POST['condition_status'],
             $_POST['stock'],
             $_POST['purchase_price']
         ];
 
-        $stmt = $pdo->prepare("INSERT INTO items (name, brand, category_id, condition_status, stock, purchase_price) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO items (name, brand, image, category_id, condition_status, stock, purchase_price) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute($data);
 
         header("Location: index.php?page=items&msg=success");
@@ -146,8 +156,7 @@ class ItemController
     }
 
     /**
-     * Update Data Barang (Admin Only)
-     * Diperbaiki agar mendukung update spesifik (Kondisi & Stok)
+     * Update Data Barang (Admin Only) - Mendukung Update Gambar
      */
     public function update($pdo)
     {
@@ -157,27 +166,44 @@ class ItemController
         }
 
         $id = $_POST['id'];
+        
+        // Ambil data lama untuk cek gambar lama
+        $stmtOld = $pdo->prepare("SELECT image FROM items WHERE id = ?");
+        $stmtOld->execute([$id]);
+        $oldItem = $stmtOld->fetch();
+        $imageName = $oldItem['image'] ?? 'default_item.jpg';
 
-        // Jika form edit hanya mengirim id, condition_status, dan stock:
+        // Jika ada upload gambar baru
+        if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
+            $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+            $newImageName = bin2hex(random_bytes(10)) . '.' . $ext;
+            $uploadPath = BASE_PATH . '/public/assets/img/items/';
+
+            if (move_uploaded_file($_FILES['image']['tmp_name'], $uploadPath . $newImageName)) {
+                // Hapus gambar lama jika bukan default
+                if ($imageName !== 'default_item.jpg' && file_exists($uploadPath . $imageName)) {
+                    unlink($uploadPath . $imageName);
+                }
+                $imageName = $newImageName;
+            }
+        }
+
+        // Cek apakah ini update cepat (hanya status & stok) atau update lengkap
         if (isset($_POST['condition_status']) && isset($_POST['stock']) && !isset($_POST['name'])) {
             $stmt = $pdo->prepare("UPDATE items SET condition_status = ?, stock = ? WHERE id = ?");
-            $stmt->execute([
-                $_POST['condition_status'],
-                $_POST['stock'],
-                $id
-            ]);
+            $stmt->execute([$_POST['condition_status'], $_POST['stock'], $id]);
         } else {
-            // Jika form edit mengirim data lengkap (Full CRUD)
             $data = [
                 $_POST['name'],
                 $_POST['brand'],
+                $imageName,
                 $_POST['category_id'],
                 $_POST['condition_status'],
                 $_POST['stock'],
                 $_POST['purchase_price'],
                 $id
             ];
-            $stmt = $pdo->prepare("UPDATE items SET name=?, brand=?, category_id=?, condition_status=?, stock=?, purchase_price=? WHERE id=?");
+            $stmt = $pdo->prepare("UPDATE items SET name=?, brand=?, image=?, category_id=?, condition_status=?, stock=?, purchase_price=? WHERE id=?");
             $stmt->execute($data);
         }
 
@@ -196,6 +222,17 @@ class ItemController
         }
 
         $id = $_GET['id'] ?? 0;
+        
+        // Ambil info gambar sebelum dihapus untuk membersihkan storage
+        $stmtImg = $pdo->prepare("SELECT image FROM items WHERE id = ?");
+        $stmtImg->execute([$id]);
+        $item = $stmtImg->fetch();
+
+        if ($item && $item['image'] !== 'default_item.jpg') {
+            $path = BASE_PATH . '/public/assets/img/items/' . $item['image'];
+            if (file_exists($path)) unlink($path);
+        }
+
         $stmt = $pdo->prepare("DELETE FROM items WHERE id = ?");
         $stmt->execute([$id]);
 
