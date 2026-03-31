@@ -16,12 +16,16 @@
             <form action="index.php" method="GET" class="flex flex-col sm:flex-row gap-3 relative" id="searchForm">
                 <input type="hidden" name="page" value="items">
                 
-                <select name="category" class="bg-white border border-slate-200 text-slate-700 text-sm rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow shadow-sm font-medium">
+                <select name="category" onchange="this.form.submit()" 
+                        class="bg-white border border-slate-200 text-slate-700 text-sm rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500 transition-shadow shadow-sm font-medium cursor-pointer">
                     <option value="">Semua Kategori</option>
-                    <option value="1" <?= (isset($_GET['category']) && $_GET['category'] == '1') ? 'selected' : '' ?>>Kamera</option>
-                    <option value="2" <?= (isset($_GET['category']) && $_GET['category'] == '2') ? 'selected' : '' ?>>Lensa</option>
-                    <option value="3" <?= (isset($_GET['category']) && $_GET['category'] == '3') ? 'selected' : '' ?>>Audio</option>
-                    <option value="4" <?= (isset($_GET['category']) && $_GET['category'] == '4') ? 'selected' : '' ?>>Lighting</option>
+                    <?php if (isset($categories)): ?>
+                        <?php foreach ($categories as $cat): ?>
+                            <option value="<?= $cat['id'] ?>" <?= (isset($_GET['category']) && $_GET['category'] == $cat['id']) ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($cat['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </select>
 
                 <div class="relative w-full sm:w-64">
@@ -48,6 +52,10 @@
             </form>
         </div>
     </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+        </div>
+</div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
         <?php if (!empty($items)): ?>

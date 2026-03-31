@@ -14,7 +14,7 @@
                 <span class="inline-flex w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span class="text-[10px] font-bold tracking-widest text-slate-400 uppercase">System operational</span>
             </div>
-            <h1 class="text-4xl font-black text-slate-900 tracking-tight">Admin <span class="text-blue-600">Console.</span></h1>
+            <h1 class="text-4xl font-black text-slate-900 tracking-tight">Halaman  <span class="text-blue-600">Admin</span></h1>
             <p class="text-slate-500 mt-2 font-medium">Selamat datang kembali, <span class="text-slate-900 font-bold"><?= explode(' ', $_SESSION['name'] ?? 'Admin')[0] ?></span>. Ringkasan sistem hari ini.</p>
         </div>
         <div class="flex items-center gap-3">

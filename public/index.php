@@ -100,7 +100,7 @@ switch ($page) {
         (new LoanController())->$action($pdo);
         break;
 
-    // --- FITUR APPROVAL, PICKUP & RETURN (PETUGAS/ADMIN) ---
+    // --- FITUR APPROVAL, PICKUP, RETURN & FINES (PETUGAS/ADMIN) ---
     case 'approvals':
     case 'approve_loan':
     case 'reject_loan':
@@ -108,15 +108,20 @@ switch ($page) {
     case 'cancel_pickup':
     case 'return_item':
     case 'print_report':
+    case 'fines': // Sinkronisasi: Case denda digabung ke sini agar terproteksi role admin/petugas
         if (!in_array($_SESSION['role'], ['admin', 'petugas'])) {
             header("Location: index.php?page=dashboard&msg=unauthorized");
             exit;
         }
+        
+        // Logika penentuan method di LoanController
         $method = ($page == 'print_report') ? 'generateReport' : 
+                  (($page == 'fines') ? 'fines' : // Mapping case 'fines' ke method 'fines' di Controller
                   (($page == 'return_item') ? 'returnItem' : 
                   (($page == 'cancel_pickup') ? 'cancelPickup' :
                   (($page == 'confirm_pickup') ? 'pickup' :
-                  str_replace('_loan', '', $page))));
+                  str_replace('_loan', '', $page)))));
+                  
         (new LoanController())->$method($pdo);
         break;
 

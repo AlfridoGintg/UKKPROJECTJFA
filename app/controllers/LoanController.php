@@ -4,6 +4,13 @@ require_once BASE_PATH . '/app/helpers/auth.php';
 class LoanController {
     
     /**
+     * Helper untuk mengecek role admin
+     */
+    private function isAdmin() {
+        return (check() && $_SESSION['role'] === 'admin');
+    }
+
+    /**
      * PETUGAS/ADMIN: Melihat antrean approval, peminjaman aktif, dan riwayat
      */
     public function approvals($pdo) {
@@ -45,6 +52,66 @@ class LoanController {
     }
 
     /**
+     * ADMIN ONLY: Log Pelanggaran & Denda
+     */
+    public function fines($pdo) {
+        if (!$this->isAdmin()) {
+            header("Location: index.php?page=dashboard");
+            exit;
+        }
+
+        // Mengambil data peminjaman yang memiliki denda (Rusak/Hilang)
+        $stmt = $pdo->query("SELECT l.*, u.username as student_name, i.name as item_name 
+                             FROM loans l 
+                             JOIN users u ON l.user_id = u.id 
+                             JOIN items i ON l.item_id = i.id 
+                             WHERE l.fine > 0 
+                             ORDER BY l.returned_at DESC");
+        $fines = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        ob_start();
+        ?>
+        <div class="max-w-7xl mx-auto px-6 py-10">
+            <h1 class="text-3xl font-black text-slate-900 mb-6 uppercase tracking-tight">Log Pelanggaran & <span class="text-red-600">Denda</span></h1>
+            <div class="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-50 border-b border-slate-100">
+                            <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                <th class="px-8 py-5">Mahasiswa</th>
+                                <th class="px-8 py-5">Item</th>
+                                <th class="px-8 py-5">Kondisi Akhir</th>
+                                <th class="px-8 py-5 text-right">Total Denda</th>
+                                <th class="px-8 py-5 text-right">Tgl Kembali</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            <?php if (!empty($fines)): foreach ($fines as $f): ?>
+                            <tr class="hover:bg-slate-50/50 transition">
+                                <td class="px-8 py-5 font-bold text-slate-800"><?= htmlspecialchars($f['student_name']) ?></td>
+                                <td class="px-8 py-5 text-slate-700"><?= htmlspecialchars($f['item_name']) ?></td>
+                                <td class="px-8 py-5">
+                                    <span class="px-3 py-1 rounded-full text-[9px] font-black uppercase <?= $f['condition_end'] == 'Hilang' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600' ?>">
+                                        <?= htmlspecialchars($f['condition_end']) ?>
+                                    </span>
+                                </td>
+                                <td class="px-8 py-5 text-right font-black text-red-600">Rp <?= number_format($f['fine'], 0, ',', '.') ?></td>
+                                <td class="px-8 py-5 text-right text-xs text-slate-400"><?= date('d/m/Y', strtotime($f['returned_at'])) ?></td>
+                            </tr>
+                            <?php endforeach; else: ?>
+                                <tr><td colspan="5" class="px-8 py-10 text-center text-slate-400 italic">Belum ada catatan denda.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <?php
+        $content = ob_get_clean();
+        require BASE_PATH . '/app/views/layouts/main.php';
+    }
+
+    /**
      * MAHASISWA: Proses simpan peminjaman (Store)
      */
     public function store($pdo) {
@@ -55,7 +122,6 @@ class LoanController {
         $condition = htmlspecialchars($_POST['initial_condition'] ?? '', ENT_QUOTES, 'UTF-8');
         $return_date = htmlspecialchars($_POST['return_date'] ?? '', ENT_QUOTES, 'UTF-8');
 
-        // Validasi Durasi (Maks 4 hari)
         $today = new DateTime(date('Y-m-d'));
         $returning = new DateTime($return_date);
         $interval = $today->diff($returning);
@@ -65,7 +131,6 @@ class LoanController {
             die("<script>alert('Error: Durasi peminjaman maksimal 4 hari atau format tanggal salah.'); history.back();</script>");
         }
 
-        // Cek Stok
         $stmt = $pdo->prepare("SELECT stock FROM items WHERE id = ?");
         $stmt->execute([$item_id]);
         $item = $stmt->fetch();
@@ -85,7 +150,7 @@ class LoanController {
     }
 
     /**
-     * PETUGAS/ADMIN: Approve Peminjaman (Generate QR & Kurangi Stok)
+     * PETUGAS/ADMIN: Approve Peminjaman
      */
     public function approve($pdo) {
         if (!in_array($_SESSION['role'], ['admin', 'petugas'])) exit;
@@ -116,7 +181,7 @@ class LoanController {
     }
 
     /**
-     * PETUGAS: Proses Pickup (Ubah status jadi 'borrowed')
+     * PETUGAS: Proses Pickup
      */
     public function pickup($pdo) {
         if (!in_array($_SESSION['role'], ['admin', 'petugas'])) exit;
@@ -140,7 +205,7 @@ class LoanController {
     }
 
     /**
-     * PETUGAS: Verifikasi Pengembalian (Update via Model PHP)
+     * PETUGAS: Verifikasi Pengembalian
      */
     public function returnItem($pdo) {
         if (!in_array($_SESSION['role'], ['admin', 'petugas'])) exit;
@@ -149,20 +214,16 @@ class LoanController {
         $kondisi = $_POST['condition'] ?? 'Baik';
 
         try {
-            // Memanggil logika proses return dari model Loan.php yang sudah kita perbaiki
             require_once BASE_PATH . '/app/models/Loan.php';
             $loanModel = new Loan($pdo);
-            
-            // Eksekusi proses pengembalian (perhitungan denda & update stok)
             $success = $loanModel->processReturn($loan_id, $kondisi);
 
             if ($success) {
                 header("Location: index.php?page=approvals&msg=returned_success");
                 exit;
             } else {
-                die("Gagal memproses pengembalian barang. Silakan periksa koneksi database.");
+                die("Gagal memproses pengembalian barang.");
             }
-            
         } catch (PDOException $e) {
             die("Database Error: " . $e->getMessage());
         }
@@ -173,7 +234,6 @@ class LoanController {
      */
     public function history($pdo) {
         if (!check()) { header("Location: index.php?page=login"); exit; }
-
         $role = $_SESSION['role'];
         $user_id = $_SESSION['user_id'];
 
@@ -191,43 +251,88 @@ class LoanController {
         require BASE_PATH . '/app/views/layouts/main.php';
     }
 
-    /**
-     * FITUR BARU: Generate Report (Cetak Laporan)
-     */
     public function generateReport($pdo) {
         if (!check() || !in_array($_SESSION['role'], ['admin', 'petugas'])) {
             header("Location: index.php?page=dashboard");
             exit;
         }
-
-        $stmt = $pdo->query("
-            SELECT l.*, u.username, i.name as item_name, i.brand 
-            FROM loans l 
-            LEFT JOIN users u ON l.user_id = u.id 
-            LEFT JOIN items i ON l.item_id = i.id 
-            ORDER BY l.created_at DESC
-        ");
+        $stmt = $pdo->query("SELECT l.*, u.username, i.name as item_name, i.brand FROM loans l LEFT JOIN users u ON l.user_id = u.id LEFT JOIN items i ON l.item_id = i.id ORDER BY l.created_at DESC");
         $reportData = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
         require BASE_PATH . '/app/views/admin/report_print.php';
     }
 
     /**
-     * ADMIN ONLY: Hapus Riwayat Peminjaman
+     * ADMIN ONLY: Menghapus item secara permanen (termasuk riwayatnya)
      */
-    public function deleteLoan($pdo) {
-        if ($_SESSION['role'] !== 'admin') {
-            header("Location: index.php?page=approvals&msg=unauthorized");
+    public function delete($pdo) {
+        // Pastikan hanya admin yang bisa menghapus
+        if (!$this->isAdmin()) {
+            header("Location: index.php?page=items");
             exit;
         }
+
+        $id = $_GET['id'] ?? 0;
         
+        try {
+            // Mulai transaksi database agar aman
+            $pdo->beginTransaction();
+
+            // 1. Hapus dulu riwayat di tabel loans yang merujuk ke item ini
+            $stmtLoan = $pdo->prepare("DELETE FROM loans WHERE item_id = ?");
+            $stmtLoan->execute([$id]);
+
+            // 2. Hapus data utama di tabel items
+            $stmt = $pdo->prepare("DELETE FROM items WHERE id = ?");
+            $stmt->execute([$id]);
+
+            // Simpan perubahan
+            $pdo->commit();
+            
+            header("Location: index.php?page=items&msg=deleted");
+        } catch (PDOException $e) {
+            // Jika ada yang gagal, batalkan semua proses
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            die("Gagal menghapus barang: " . $e->getMessage());
+        }
+        exit;
+    }
+
+    /**
+     * ADMIN ONLY: Menghapus record peminjaman (soft delete)
+     */
+    public function deleteLoan($pdo) {
+        if (!$this->isAdmin()) exit;
         $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
         if ($id) {
             $pdo->prepare("DELETE FROM loans WHERE id = ?")->execute([$id]);
             header("Location: index.php?page=approvals&msg=deleted");
-        } else {
-            header("Location: index.php?page=approvals&msg=error");
         }
         exit;
+    }
+
+    public function manage_returns($pdo) {
+        if (!$this->isAdmin()) exit;
+
+        $stmt = $pdo->query("SELECT l.*, u.username, i.name as item_name 
+                             FROM loans l 
+                             JOIN users u ON l.user_id = u.id 
+                             JOIN items i ON l.item_id = i.id 
+                             WHERE l.status = 'returned' 
+                             ORDER BY l.returned_at DESC");
+        $returns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        ob_start();
+        require BASE_PATH . '/app/views/admin/manage_returns.php';
+        $content = ob_get_clean();
+        require BASE_PATH . '/app/views/layouts/main.php';
+    }
+
+    public function delete_return($pdo) {
+        if (!$this->isAdmin()) exit;
+        $id = $_GET['id'] ?? 0;
+        $pdo->prepare("DELETE FROM loans WHERE id = ?")->execute([$id]);
+        header("Location: index.php?page=manage_returns&msg=deleted");
     }
 }
